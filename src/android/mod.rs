@@ -1,14 +1,17 @@
 extern crate android_glue;
 
 use libc;
+use std::ffi::{CString};
+use std::sync::mpsc::{Receiver, channel};
 use {CreationError, Event, WindowBuilder};
 use CreationError::OsError;
 use events::ElementState::{Pressed, Released};
 use events::Event::{MouseInput, MouseMoved};
 use events::MouseButton::LeftMouseButton;
 
-#[cfg(feature = "headless")]
-use HeadlessRendererBuilder;
+use std::collections::RingBuf;
+
+use BuilderAttribs;
 
 pub struct Window {
     display: ffi::egl::types::EGLDisplay,
@@ -21,8 +24,10 @@ pub struct MonitorID;
 
 mod ffi;
 
-pub fn get_available_monitors() -> Vec<MonitorID> {
-    vec![ MonitorID ]
+pub fn get_available_monitors() -> RingBuf <MonitorID> {
+    let mut rb = RingBuf::new();
+    rb.push_back(MonitorID);
+    rb
 }
 
 pub fn get_primary_monitor() -> MonitorID {
@@ -45,7 +50,7 @@ pub struct HeadlessContext(int);
 #[cfg(feature = "headless")]
 impl HeadlessContext {
     /// See the docs in the crate root file.
-    pub fn new(_builder: HeadlessRendererBuilder) -> Result<HeadlessContext, CreationError> {
+    pub fn new(_builder: BuilderAttribs) -> Result<HeadlessContext, CreationError> {
         unimplemented!()
     }
 
@@ -64,8 +69,13 @@ impl HeadlessContext {
     }
 }
 
+#[cfg(feature = "headless")]
+unsafe impl Send for HeadlessContext {}
+#[cfg(feature = "headless")]
+unsafe impl Sync for HeadlessContext {}
+
 impl Window {
-    pub fn new(builder: WindowBuilder) -> Result<Window, CreationError> {
+    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
         use std::{mem, ptr};
 
         if builder.sharing.is_some() {
@@ -215,29 +225,19 @@ impl Window {
         WindowProxy
     }
 
-    pub fn poll_events(&self) -> Vec<Event> {
-        use std::time::Duration;
-        use std::io::timer;
-        timer::sleep(Duration::milliseconds(16));
-        Vec::new()
-    }
-
-    pub fn wait_events(&self) -> Vec<Event> {
-        use std::time::Duration;
-        use std::io::timer;
-        timer::sleep(Duration::milliseconds(16));
-        let mut events = Vec::new();
+    pub fn poll_events(&self) -> RingBuf<Event> {
+        let mut events = RingBuf::new();
         loop {
             match self.event_rx.try_recv() {
                 Ok(event) => match event {
                     android_glue::Event::EventDown => {
-                        events.push(MouseInput(Pressed, LeftMouseButton));
+                        events.push_back(MouseInput(Pressed, LeftMouseButton));
                     },
                     android_glue::Event::EventUp => {
-                        events.push(MouseInput(Released, LeftMouseButton));
+                        events.push_back(MouseInput(Released, LeftMouseButton));
                     },
                     android_glue::Event::EventMove(x, y) => {
-                        events.push(MouseMoved((x as int, y as int)));
+                        events.push_back(MouseMoved((x as int, y as int)));
                     },
                 },
                 Err(_) => {
@@ -248,6 +248,13 @@ impl Window {
         events
     }
 
+    pub fn wait_events(&self) -> RingBuf<Event> {
+        use std::time::Duration;
+        use std::io::timer;
+        timer::sleep(Duration::milliseconds(16));
+        self.poll_events()
+    }
+
     pub fn make_current(&self) {
         unsafe {
             ffi::egl::MakeCurrent(self.display, self.surface, self.surface, self.context);
@@ -255,12 +262,9 @@ impl Window {
     }
 
     pub fn get_proc_address(&self, addr: &str) -> *const () {
-        use std::c_str::ToCStr;
-
+        let addr = CString::from_slice(addr.as_bytes()).as_slice_with_nul().as_ptr();
         unsafe {
-            addr.with_c_str(|s| {
-                ffi::egl::GetProcAddress(s) as *const ()
-            })
+            ffi::egl::GetProcAddress(addr) as *const ()
         }
     }
 
@@ -286,8 +290,11 @@ impl Window {
     }
 }
 
+unsafe impl Send for Window {}
+unsafe impl Sync for Window {}
+
 #[cfg(feature = "window")]
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct WindowProxy;
 
 impl WindowProxy {

@@ -5,8 +5,7 @@ use {CreationError, Event};
 use CreationError::OsError;
 use libc;
 
-#[cfg(feature = "window")]
-use WindowBuilder;
+use BuilderAttribs;
 
 use cocoa::base::{id, NSUInteger, nil, objc_allocateClassPair, class, objc_registerClassPair};
 use cocoa::base::{selector, msg_send, class_addMethod, class_addIvar};
@@ -19,9 +18,13 @@ use core_foundation::string::CFString;
 use core_foundation::bundle::{CFBundleGetBundleWithIdentifier, CFBundleGetFunctionPointerForName};
 
 use std::cell::Cell;
-use std::c_str::CString;
+use std::ffi::{CString, c_str_to_bytes};
 use std::mem;
 use std::ptr;
+use std::collections::RingBuf;
+use std::str::FromStr;
+use std::str::from_utf8;
+use std::ascii::AsciiExt;
 
 use events::Event::{MouseInput, MouseMoved, ReceivedCharacter, KeyboardInput, MouseWheel};
 use events::ElementState::{Pressed, Released};
@@ -64,7 +67,7 @@ pub struct Window {
 
 #[cfg(feature = "window")]
 impl Window {
-    pub fn new(builder: WindowBuilder) -> Result<Window, CreationError> {
+    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
         if builder.sharing.is_some() {
             unimplemented!()
         }
@@ -74,7 +77,12 @@ impl Window {
 }
 
 #[cfg(feature = "window")]
-#[deriving(Clone)]
+unsafe impl Send for Window {}
+#[cfg(feature = "window")]
+unsafe impl Sync for Window {}
+
+#[cfg(feature = "window")]
+#[derive(Clone)]
 pub struct WindowProxy;
 
 impl WindowProxy {
@@ -167,9 +175,9 @@ impl Window {
         let delegate = unsafe {
             // Create a delegate class, add callback methods and store InternalState as user data.
             let delegate = objc_allocateClassPair(ns_object, DELEGATE_NAME.as_ptr() as *const i8, 0);
-            class_addMethod(delegate, selector("windowShouldClose:"), window_should_close, "B@:@".to_c_str().as_ptr());
-            class_addMethod(delegate, selector("windowDidResize:"), window_did_resize, "V@:@".to_c_str().as_ptr());
-            class_addIvar(delegate, DELEGATE_STATE_IVAR.as_ptr() as *const i8, ptr_size, 3, "?".to_c_str().as_ptr());
+            class_addMethod(delegate, selector("windowShouldClose:"), window_should_close, CString::from_slice("B@:@".as_bytes()).as_ptr());
+            class_addMethod(delegate, selector("windowDidResize:"), window_did_resize, CString::from_slice("V@:@".as_bytes()).as_ptr());
+            class_addIvar(delegate, DELEGATE_STATE_IVAR.as_ptr() as *const i8, ptr_size, 3, CString::from_slice("?".as_bytes()).as_ptr());
             objc_registerClassPair(delegate);
 
             let del_obj = msg_send()(delegate, selector("alloc"));
@@ -265,12 +273,12 @@ impl Window {
     fn create_context(view: id, vsync: bool) -> Option<id> {
         unsafe {
             let attributes = [
-                NSOpenGLPFADoubleBuffer as uint,
-                NSOpenGLPFAClosestPolicy as uint,
-                NSOpenGLPFAColorSize as uint, 24,
-                NSOpenGLPFAAlphaSize as uint, 8,
-                NSOpenGLPFADepthSize as uint, 24,
-                NSOpenGLPFAStencilSize as uint, 8,
+                NSOpenGLPFADoubleBuffer as u32,
+                NSOpenGLPFAClosestPolicy as u32,
+                NSOpenGLPFAColorSize as u32, 24,
+                NSOpenGLPFAAlphaSize as u32, 8,
+                NSOpenGLPFADepthSize as u32, 24,
+                NSOpenGLPFAStencilSize as u32, 8,
                 0
             ];
 
@@ -335,8 +343,8 @@ impl Window {
         WindowProxy
     }
 
-    pub fn poll_events(&self) -> Vec<Event> {
-        let mut events = Vec::new();
+    pub fn poll_events(&self) -> RingBuf<Event> {
+        let mut events = RingBuf::new();
 
         loop {
             unsafe {
@@ -369,10 +377,10 @@ impl Window {
 }
 
                 match event.get_type() {
-                    NSLeftMouseDown         => { events.push(MouseInput(Pressed, LeftMouseButton)); },
-                    NSLeftMouseUp           => { events.push(MouseInput(Released, LeftMouseButton)); },
-                    NSRightMouseDown        => { events.push(MouseInput(Pressed, RightMouseButton)); },
-                    NSRightMouseUp          => { events.push(MouseInput(Released, RightMouseButton)); },
+                    NSLeftMouseDown         => { events.push_back(MouseInput(Pressed, LeftMouseButton)); },
+                    NSLeftMouseUp           => { events.push_back(MouseInput(Released, LeftMouseButton)); },
+                    NSRightMouseDown        => { events.push_back(MouseInput(Pressed, RightMouseButton)); },
+                    NSRightMouseUp          => { events.push_back(MouseInput(Released, RightMouseButton)); },
                     NSMouseMoved            => {
                         let window_point = event.locationInWindow();
                         let window: id = msg_send()(event, selector("window"));
@@ -384,46 +392,47 @@ impl Window {
                         };
                         let view_rect = NSView::frame(self.view);
                         let scale_factor = self.hidpi_factor() as int;
-                        events.push(MouseMoved((scale_factor * view_point.x as int, scale_factor * (view_rect.size.height - view_point.y) as int)));
+                        events.push_back(MouseMoved((scale_factor * view_point.x as int, scale_factor * (view_rect.size.height - view_point.y) as int)));
                     },
                     NSKeyDown               => {
-                        let received_str = CString::new(event.characters().UTF8String(), false);
-                        for received_char in received_str.as_str().unwrap().chars() {
+                        let received_c_str = event.characters().UTF8String();
+                        let received_str = CString::from_slice(c_str_to_bytes(&received_c_str));
+                        for received_char in from_utf8(received_str.as_bytes()).unwrap().chars() {
                             if received_char.is_ascii() {
-                                events.push(ReceivedCharacter(received_char));
+                                events.push_back(ReceivedCharacter(received_char));
                             }
                         }
 
                         let vkey =  event::vkeycode_to_element(event.keycode());
-                        events.push(KeyboardInput(Pressed, event.keycode() as u8, vkey));
+                        events.push_back(KeyboardInput(Pressed, event.keycode() as u8, vkey));
                     },
                     NSKeyUp                 => {
                         let vkey =  event::vkeycode_to_element(event.keycode());
-                        events.push(KeyboardInput(Released, event.keycode() as u8, vkey));
+                        events.push_back(KeyboardInput(Released, event.keycode() as u8, vkey));
                     },
                     NSFlagsChanged          => {
                         let shift_modifier = Window::modifier_event(event, appkit::NSShiftKeyMask as u64, events::VirtualKeyCode::LShift, shift_pressed);
                         if shift_modifier.is_some() {
                             shift_pressed = !shift_pressed;
-                            events.push(shift_modifier.unwrap());
+                            events.push_back(shift_modifier.unwrap());
                         }
                         let ctrl_modifier = Window::modifier_event(event, appkit::NSControlKeyMask as u64, events::VirtualKeyCode::LControl, ctrl_pressed);
                         if ctrl_modifier.is_some() {
                             ctrl_pressed = !ctrl_pressed;
-                            events.push(ctrl_modifier.unwrap());
+                            events.push_back(ctrl_modifier.unwrap());
                         }
                         let win_modifier = Window::modifier_event(event, appkit::NSCommandKeyMask as u64, events::VirtualKeyCode::LWin, win_pressed);
                         if win_modifier.is_some() {
                             win_pressed = !win_pressed;
-                            events.push(win_modifier.unwrap());
+                            events.push_back(win_modifier.unwrap());
                         }
                         let alt_modifier = Window::modifier_event(event, appkit::NSAlternateKeyMask as u64, events::VirtualKeyCode::LAlt, alt_pressed);
                         if alt_modifier.is_some() {
                             alt_pressed = !alt_pressed;
-                            events.push(alt_modifier.unwrap());
+                            events.push_back(alt_modifier.unwrap());
                         }
                     },
-                    NSScrollWheel           => { events.push(MouseWheel(-event.scrollingDeltaY() as i32)); },
+                    NSScrollWheel           => { events.push_back(MouseWheel(-event.scrollingDeltaY() as i32)); },
                     NSOtherMouseDown        => { },
                     NSOtherMouseUp          => { },
                     NSOtherMouseDragged     => { },
@@ -449,7 +458,7 @@ impl Window {
         event.modifierFlags() & modifier != 0
     }
 
-    pub fn wait_events(&self) -> Vec<Event> {
+    pub fn wait_events(&self) -> RingBuf<Event> {
         unsafe {
             let event = NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
                 NSAnyEventMask as u64,
@@ -468,8 +477,8 @@ impl Window {
     }
 
     pub fn get_proc_address(&self, _addr: &str) -> *const () {
-        let symbol_name: CFString = from_str(_addr).unwrap();
-        let framework_name: CFString = from_str("com.apple.opengl").unwrap();
+        let symbol_name: CFString = FromStr::from_str(_addr).unwrap();
+        let framework_name: CFString = FromStr::from_str("com.apple.opengl").unwrap();
         let framework = unsafe {
             CFBundleGetBundleWithIdentifier(framework_name.as_concrete_TypeRef())
         };
