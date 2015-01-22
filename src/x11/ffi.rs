@@ -8,12 +8,25 @@ use libc;
 
 /// GLX bindings
 pub mod glx {
-    include!(concat!(env!("OUT_DIR"), "/glx_bindings.rs"));
+    generate_gl_bindings! {
+        api: "glx",
+        profile: "core",
+        version: "1.4",
+        generator: "static"
+    }
 }
 
 /// Functions that are not necessarly always available
 pub mod glx_extra {
-    include!(concat!(env!("OUT_DIR"), "/glx_extra_bindings.rs"));
+    generate_gl_bindings! {
+        api: "glx",
+        profile: "core",
+        version: "1.4",
+        generator: "struct",
+        extensions: [
+            "GLX_ARB_create_context"
+        ]
+    }
 }
 
 pub type Atom = libc::c_ulong;
@@ -1241,7 +1254,7 @@ pub struct XSetWindowAttributes {
 #[repr(C)]
 pub struct XEvent {
     pub type_: libc::c_int,
-    pad: [libc::c_long; 24],
+    pad: [libc::c_long, ..24],
 }
 
 #[repr(C)]
@@ -1253,7 +1266,7 @@ pub struct XClientMessageEvent {
     pub window: Window,
     pub message_type: Atom,
     pub format: libc::c_int,
-    pub l: [libc::c_long; 5],
+    pub l: [libc::c_long, ..5],
 }
 
 #[repr(C)]
@@ -1435,7 +1448,7 @@ extern "C" {
         res_class: *mut libc::c_char) -> XIM;
 
     // TODO: this is a vararg function
-    //pub fn XCreateIC(im: XIM; .) -> XIC;
+    //pub fn XCreateIC(im: XIM, ...) -> XIC;
     pub fn XCreateIC(im: XIM, a: *const libc::c_char, b: libc::c_long, c: *const libc::c_char,
         d: Window, e: *const ()) -> XIC;
     pub fn XDestroyIC(ic: XIC);

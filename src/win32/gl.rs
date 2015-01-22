@@ -1,11 +1,25 @@
 /// WGL bindings
 pub mod wgl {
-    include!(concat!(env!("OUT_DIR"), "/wgl_bindings.rs"));
+    generate_gl_bindings! {
+        api: "wgl",
+        profile: "core",
+        version: "1.0",
+        generator: "static"
+    }
 }
 
 /// Functions that are not necessarly always available
 pub mod wgl_extra {
-    include!(concat!(env!("OUT_DIR"), "/wgl_extra_bindings.rs"));
+    generate_gl_bindings! {
+        api: "wgl",
+        profile: "core",
+        version: "1.0",
+        generator: "struct",
+        extensions: [
+            "WGL_ARB_create_context",
+            "WGL_EXT_swap_control"
+        ]
+    }
 }
 
 #[link(name = "opengl32")]

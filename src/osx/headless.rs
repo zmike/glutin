@@ -1,6 +1,6 @@
 use CreationError;
 use CreationError::OsError;
-use BuilderAttribs;
+use HeadlessRendererBuilder;
 use libc;
 use std::ptr;
 
@@ -30,7 +30,7 @@ pub struct HeadlessContext {
 }
 
 impl HeadlessContext {
-    pub fn new(builder: BuilderAttribs) -> Result<HeadlessContext, CreationError> {
+    pub fn new(builder: HeadlessRendererBuilder) -> Result<HeadlessContext, CreationError> {
         let (width, height) = builder.dimensions;
         let context = unsafe {
             let attributes = [
@@ -102,9 +102,6 @@ impl HeadlessContext {
         ::Api::OpenGl
     }
 }
-
-unsafe impl Send for HeadlessContext {}
-unsafe impl Sync for HeadlessContext {}
 
 impl Drop for HeadlessContext {
     fn drop(&mut self) {

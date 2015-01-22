@@ -1,9 +1,18 @@
+#![feature(phase)]
 #![feature(tuple_indexing)]
+
+#[phase(plugin)]
+extern crate gl_generator;
 extern crate glutin;
 extern crate libc;
 
 mod gl {
-    include!(concat!(env!("OUT_DIR"), "/test_gl_bindings.rs"));
+    generate_gl_bindings! {
+        api: "gl",
+        profile: "core",
+        version: "1.1",
+        generator: "struct"
+    }
 }
 
 #[cfg(feature = "headless")]
@@ -24,6 +33,6 @@ fn main() {
         
         assert!(value == (0, 255, 0, 255) || value == (0, 64, 0, 255) ||
                 value == (0, 64, 0, 255) || value == (0, 64, 0, 0),
-                "value is: {:?}", value);
+                "value is: {}", value);
     }
 }
