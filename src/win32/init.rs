@@ -6,9 +6,7 @@ use {CreationError, Event};
 use CreationError::OsError;
 
 use std::cell::RefCell;
-use std::ffi::CString;
 use std::rc::Rc;
-use std::sync::mpsc::{Sender, Receiver, channel};
 
 use libc;
 use super::gl;
@@ -18,17 +16,13 @@ use winapi;
 /// 
 /// We only have one window per thread. We still store the HWND in case where we
 ///  receive an event for another window.
-thread_local!(static WINDOW: Rc<RefCell<Option<(winapi::HWND, Sender<Event>)>>> = Rc::new(RefCell::new(None)));
-
-/// Work-around the fact that HGLRC doesn't implement Send
-pub struct ContextHack(pub winapi::HGLRC);
-unsafe impl Send for ContextHack {}
+thread_local!(static WINDOW: Rc<RefCell<Option<(winapi::HWND, Sender<Event>)>>> = Rc::new(RefCell::new(None)))
 
 pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: String,
                   builder_monitor: Option<super::MonitorID>,
                   builder_gl_version: Option<(uint, uint)>, builder_debug: bool,
                   builder_vsync: bool, builder_hidden: bool,
-                  builder_sharelists: Option<ContextHack>, builder_multisampling: Option<u16>)
+                  builder_sharelists: Option<winapi::HGLRC>, builder_multisampling: Option<u16>)
                   -> Result<Window, CreationError>
 {
     use std::mem;
@@ -43,9 +37,7 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
     // GetMessage must be called in the same thread as CreateWindow,
     //  so we create a new thread dedicated to this window.
     // This is the only safe method. Using `nosend` wouldn't work for non-native runtime.
-    ::std::thread::Thread::spawn(move || {
-        let builder_sharelists = builder_sharelists.map(|s| s.0);
-
+    spawn(move || {
         // registering the window class
         let class_name = {
             let class_name: Vec<u16> = "Window Class".utf16_units().chain(Some(0).into_iter())
@@ -77,8 +69,8 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
 
         // building a RECT object with coordinates
         let mut rect = winapi::RECT {
-            left: 0, right: builder_dimensions.unwrap_or((1024, 768)).0 as winapi::LONG,
-            top: 0, bottom: builder_dimensions.unwrap_or((1024, 768)).1 as winapi::LONG,
+            left: 0, right: builder_dimensions.unwrap_or((1024, 768)).val0() as winapi::LONG,
+            top: 0, bottom: builder_dimensions.unwrap_or((1024, 768)).val1() as winapi::LONG,
         };
 
         // switching to fullscreen if necessary
@@ -90,10 +82,10 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
             // adjusting the rect
             {
                 let pos = monitor.get_position();
-                rect.left += pos.0 as winapi::LONG;
-                rect.right += pos.0 as winapi::LONG;
-                rect.top += pos.1 as winapi::LONG;
-                rect.bottom += pos.1 as winapi::LONG;
+                rect.left += pos.val0() as winapi::LONG;
+                rect.right += pos.val0() as winapi::LONG;
+                rect.top += pos.val1() as winapi::LONG;
+                rect.bottom += pos.val1() as winapi::LONG;
             }
 
             // changing device settings
@@ -224,13 +216,11 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
 
             // loading the extra WGL functions
             let extra_functions = gl::wgl_extra::Wgl::load_with(|addr| {
-                use libc;
-
-                let addr = CString::from_slice(addr.as_bytes());
-                let addr = addr.as_slice_with_nul().as_ptr();
-
                 unsafe {
-                    gl::wgl::GetProcAddress(addr) as *const libc::c_void
+                    addr.with_c_str(|s| {
+                        use libc;
+                        gl::wgl::GetProcAddress(s) as *const libc::c_void
+                    })
                 }
             });
 
@@ -309,9 +299,9 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
             if builder_gl_version.is_some() {
                 let version = builder_gl_version.as_ref().unwrap();
                 attributes.push(gl::wgl_extra::CONTEXT_MAJOR_VERSION_ARB as libc::c_int);
-                attributes.push(version.0 as libc::c_int);
+                attributes.push(version.val0() as libc::c_int);
                 attributes.push(gl::wgl_extra::CONTEXT_MINOR_VERSION_ARB as libc::c_int);
-                attributes.push(version.1 as libc::c_int);
+                attributes.push(version.val1() as libc::c_int);
             }
 
             if builder_debug {
@@ -421,7 +411,7 @@ pub fn new_window(builder_dimensions: Option<(uint, uint)>, builder_title: Strin
         }
     });
 
-    rx.recv().unwrap()
+    rx.recv()
 }
 
 /// Checks that the window is the good one, and if so send the event to it.
@@ -439,7 +429,7 @@ fn send_event(input_window: winapi::HWND, event: Event) {
             return;
         }
 
-        sender.send(event).ok();  // ignoring if closed
+        sender.send_opt(event).ok();  // ignoring if closed
     });
 }
 

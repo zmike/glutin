@@ -1,12 +1,13 @@
 use std::sync::atomic::AtomicBool;
 use std::ptr;
-use std::ffi::CString;
-use std::collections::RingBuf;
-use std::sync::mpsc::Receiver;
 use libc;
 use {CreationError, Event};
 
-use BuilderAttribs;
+#[cfg(feature = "window")]
+use WindowBuilder;
+
+#[cfg(feature = "headless")]
+use HeadlessRendererBuilder;
 
 pub use self::monitor::{MonitorID, get_available_monitors, get_primary_monitor};
 
@@ -17,14 +18,16 @@ mod gl;
 mod init;
 mod monitor;
 
-///
+/// 
+#[cfg(feature = "headless")]
 pub struct HeadlessContext(Window);
 
+#[cfg(feature = "headless")]
 impl HeadlessContext {
     /// See the docs in the crate root file.
-    pub fn new(builder: BuilderAttribs) -> Result<HeadlessContext, CreationError> {
-        let BuilderAttribs { dimensions, gl_version, gl_debug, .. } = builder;
-        init::new_window(dimensions, "".to_string(), None, gl_version, gl_debug, false, true,
+    pub fn new(builder: HeadlessRendererBuilder) -> Result<HeadlessContext, CreationError> {
+        let HeadlessRendererBuilder { dimensions, gl_version, gl_debug } = builder;
+        init::new_window(Some(dimensions), "".to_string(), None, gl_version, gl_debug, false, true,
                          None, None)
                          .map(|w| HeadlessContext(w))
     }
@@ -47,11 +50,6 @@ impl HeadlessContext {
     pub fn set_window_resize_callback(&mut self, _: Option<fn(uint, uint)>) {
     }
 }
-
-#[cfg(feature = "headless")]
-unsafe impl Send for HeadlessContext {}
-#[cfg(feature = "headless")]
-unsafe impl Sync for HeadlessContext {}
 
 /// The Win32 implementation of the main `Window` object.
 pub struct Window {
@@ -77,21 +75,19 @@ pub struct Window {
     is_closed: AtomicBool,
 }
 
-unsafe impl Send for Window {}
-unsafe impl Sync for Window {}
-
+#[cfg(feature = "window")]
 impl Window {
     /// See the docs in the crate root file.
-    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
-        let BuilderAttribs { dimensions, title, monitor, gl_version,
-                             gl_debug, vsync, visible, sharing, multisampling, .. } = builder;
+    pub fn new(builder: WindowBuilder) -> Result<Window, CreationError> {
+        let WindowBuilder { dimensions, title, monitor, gl_version,
+                            gl_debug, vsync, visible, sharing, multisampling } = builder;
         init::new_window(dimensions, title, monitor, gl_version, gl_debug, vsync,
-                         !visible, sharing.map(|w| init::ContextHack(w.context)),
-                         multisampling)
+                         !visible, sharing.map(|w| w.window.context), multisampling)
     }
 }
 
-#[derive(Clone)]
+#[cfg(feature = "window")]
+#[deriving(Clone)]
 pub struct WindowProxy;
 
 impl WindowProxy {
@@ -103,12 +99,12 @@ impl WindowProxy {
 impl Window {
     /// See the docs in the crate root file.
     pub fn is_closed(&self) -> bool {
-        use std::sync::atomic::Ordering::Relaxed;
+        use std::sync::atomic::Relaxed;
         self.is_closed.load(Relaxed)
     }
 
     /// See the docs in the crate root file.
-    ///
+    /// 
     /// Calls SetWindowText on the HWND.
     pub fn set_title(&self, text: &str) {
         unsafe {
@@ -203,33 +199,33 @@ impl Window {
 
     /// See the docs in the crate root file.
     // TODO: return iterator
-    pub fn poll_events(&self) -> RingBuf<Event> {
-        let mut events = RingBuf::new();
+    pub fn poll_events(&self) -> Vec<Event> {
+        let mut events = Vec::new();
         loop {
             match self.events_receiver.try_recv() {
-                Ok(ev) => events.push_back(ev),
+                Ok(ev) => events.push(ev),
                 Err(_) => break
             }
         }
 
         // if one of the received events is `Closed`, setting `is_closed` to true
         if events.iter().any(|e| match e { &::events::Event::Closed => true, _ => false }) {
-            use std::sync::atomic::Ordering::Relaxed;
+            use std::sync::atomic::Relaxed;
             self.is_closed.store(true, Relaxed);
         }
-
+        
         events
     }
 
     /// See the docs in the crate root file.
     // TODO: return iterator
-    pub fn wait_events(&self) -> RingBuf<Event> {
-        match self.events_receiver.recv() {
+    pub fn wait_events(&self) -> Vec<Event> {
+        match self.events_receiver.recv_opt() {
             Ok(ev) => {
                 // if the received event is `Closed`, setting `is_closed` to true
                 match ev {
                     ::events::Event::Closed => {
-                        use std::sync::atomic::Ordering::Relaxed;
+                        use std::sync::atomic::Relaxed;
                         self.is_closed.store(true, Relaxed);
                     },
                     _ => ()
@@ -242,9 +238,9 @@ impl Window {
             },
 
             Err(_) => {
-                use std::sync::atomic::Ordering::Relaxed;
+                use std::sync::atomic::Relaxed;
                 self.is_closed.store(true, Relaxed);
-                RingBuf::new()
+                vec![]
             }
         }
     }
@@ -257,13 +253,14 @@ impl Window {
 
     /// See the docs in the crate root file.
     pub fn get_proc_address(&self, addr: &str) -> *const () {
-        let addr = CString::from_slice(addr.as_bytes());
-        let addr = addr.as_slice_with_nul().as_ptr();
+        use std::c_str::ToCStr;
 
         unsafe {
-            let p = gl::wgl::GetProcAddress(addr) as *const ();
-            if !p.is_null() { return p; }
-            winapi::GetProcAddress(self.gl_library, addr) as *const ()
+            addr.with_c_str(|s| {
+                let p = gl::wgl::GetProcAddress(s) as *const ();
+                if !p.is_null() { return p; }
+                winapi::GetProcAddress(self.gl_library, s) as *const ()
+            })
         }
     }
 

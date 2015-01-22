@@ -1,6 +1,8 @@
+#![feature(phase)]
 #![feature(tuple_indexing)]
+
 #[cfg(target_os = "android")]
-#[macro_use]
+#[phase(plugin, link)]
 extern crate android_glue;
 
 extern crate glutin;
@@ -8,7 +10,7 @@ extern crate glutin;
 mod support;
 
 #[cfg(target_os = "android")]
-android_start!(main);
+android_start!(main)
 
 #[cfg(not(feature = "window"))]
 fn main() { println!("This example requires glutin to be compiled with the `window` feature"); }
@@ -22,7 +24,7 @@ fn resize_callback(width: uint, height: uint) {
 fn main() {
     let mut window = glutin::Window::new().unwrap();
     window.set_title("A fantastic window!");
-    window.set_window_resize_callback(Some(resize_callback as fn(uint, uint)));
+    window.set_window_resize_callback(Some(resize_callback));
     unsafe { window.make_current() };
 
     let context = support::load(&window);
@@ -31,6 +33,6 @@ fn main() {
         context.draw_frame((0.0, 1.0, 0.0, 1.0));
         window.swap_buffers();
 
-        println!("{:?}", window.wait_events().collect::<Vec<glutin::Event>>());
+        println!("{}", window.wait_events().collect::<Vec<glutin::Event>>());
     }
 }

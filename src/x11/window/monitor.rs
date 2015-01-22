@@ -1,11 +1,10 @@
-use std::ptr;
-use std::collections::RingBuf;
+use std::{ptr};
 use super::super::ffi;
 use super::ensure_thread_init;
 
-pub struct MonitorID(pub usize);
+pub struct MonitorID(pub uint);
 
-pub fn get_available_monitors() -> RingBuf<MonitorID> {
+pub fn get_available_monitors() -> Vec<MonitorID> {
     ensure_thread_init();
     let nb_monitors = unsafe {
         let display = ffi::XOpenDisplay(ptr::null());
@@ -17,9 +16,9 @@ pub fn get_available_monitors() -> RingBuf<MonitorID> {
         nb_monitors
     };
 
-    let mut monitors = RingBuf::new();
-    monitors.extend(range(0, nb_monitors).map(|i| MonitorID(i as usize)));
-    monitors
+    let mut vec = Vec::new();
+    vec.grow_fn(nb_monitors as uint, |i| MonitorID(i));
+    vec
 }
 
 pub fn get_primary_monitor() -> MonitorID {
@@ -34,7 +33,7 @@ pub fn get_primary_monitor() -> MonitorID {
         primary_monitor
     };
 
-    MonitorID(primary_monitor as usize)
+    MonitorID(primary_monitor as uint)
 }
 
 impl MonitorID {
@@ -43,7 +42,7 @@ impl MonitorID {
         Some(format!("Monitor #{}", screen_num))
     }
 
-    pub fn get_dimensions(&self) -> (usize, usize) {
+    pub fn get_dimensions(&self) -> (uint, uint) {
         let dimensions = unsafe {
             let display = ffi::XOpenDisplay(ptr::null());
             let MonitorID(screen_num) = *self;
@@ -51,7 +50,7 @@ impl MonitorID {
             let width = ffi::XWidthOfScreen(screen);
             let height = ffi::XHeightOfScreen(screen);
             ffi::XCloseDisplay(display);
-            (width as usize, height as usize)
+            (width as uint, height as uint)
         };
 
         dimensions
