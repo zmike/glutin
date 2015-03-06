@@ -36,6 +36,7 @@ branch = "backport-20150306"
 
 [target.x86_64-apple-darwin.dependencies.cocoa]
 git = "https://github.com/servo/rust-cocoa"
+branch = "backport-20150306"
 
 [target.i686-apple-darwin.dependencies.core_graphics]
 git = "https://github.com/servo/rust-core-graphics"
