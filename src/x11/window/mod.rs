@@ -163,7 +163,12 @@ impl<'a> Iterator for PollEventsIterator<'a> {
                         return Some(Resized(cfg_event.width as u32, cfg_event.height as u32));
                     }
                 },
-    
+
+                ffi::Expose => {
+                    use events::Event::Refresh;
+                    return Some(Refresh);
+                },
+
                 ffi::MotionNotify => {
                     use events::Event::MouseMoved;
                     let event: &ffi::XMotionEvent = unsafe { mem::transmute(&xev) };
