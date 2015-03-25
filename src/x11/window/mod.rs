@@ -486,6 +486,16 @@ impl Window {
             }
         }
 
+        // Set ICCCM WM_CLASS property based on initial window title
+        unsafe {
+            with_c_str(builder.title.as_slice(), |c_name| {
+                let hint = ffi::XAllocClassHint();
+                (*hint).res_name = c_name;
+                (*hint).res_class = c_name;
+                ffi::XSetClassHint(display, window, hint);
+                ffi::XFree(hint as *const libc::c_void);
+            });
+        }
 
         // creating GL context
         let (context, extra_functions) = unsafe {
