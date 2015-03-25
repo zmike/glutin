@@ -1369,6 +1369,12 @@ pub struct XErrorEvent {
     pub minor_code: libc::c_char,
 }
 
+#[repr(C)]
+pub struct XClassHint {
+    pub res_name: *const libc::c_char,
+    pub res_class: *const libc::c_char,
+}
+
 #[cfg(feature = "headless")]
 #[link(name = "OSMesa")]
 extern "C" {
@@ -1460,7 +1466,7 @@ extern "C" {
         keysym_return: *mut KeySym, status_return: *mut Status) -> libc::c_int;
 
     pub fn XkbSetDetectableAutoRepeat(dpy: *mut Display, detectable: bool, supported_rtm: *mut bool) -> bool;
-    
+
     pub fn XF86VidModeSwitchToMode(dpy: *mut Display, screen: libc::c_int,
         modeline: *mut XF86VidModeModeInfo) -> Bool;
     pub fn XF86VidModeSetViewPort(dpy: *mut Display, screen: libc::c_int,
@@ -1470,6 +1476,9 @@ extern "C" {
 
     pub fn XcursorLibraryLoadCursor(dpy: *mut Display, name: *const libc::c_char) -> Cursor;
     pub fn XDefineCursor(dby: *mut Display, w: Window, cursor: Cursor);
+
+    pub fn XAllocClassHint() -> *mut XClassHint;
+    pub fn XSetClassHint(dpy: *mut Display, w: Window, class_hints: *mut XClassHint);
 }
 
 /*
