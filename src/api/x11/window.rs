@@ -6,7 +6,8 @@ use std::{mem, ptr};
 use std::cell::Cell;
 use std::sync::atomic::AtomicBool;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use super::ffi;
+use std::sync::{Arc, Mutex, Once, ONCE_INIT, Weak};
 
 use Api;
 use ContextError;
@@ -83,25 +84,27 @@ impl Drop for XWindow {
 
 #[derive(Clone)]
 pub struct WindowProxy {
-    x: Arc<XWindow>,
+    x: Weak<XWindow>,
 }
 
 impl WindowProxy {
     pub fn wakeup_event_loop(&self) {
-        let mut xev = ffi::XClientMessageEvent {
-            type_: ffi::ClientMessage,
-            window: self.x.window,
-            format: 32,
-            message_type: 0,
-            serial: 0,
-            send_event: 0,
-            display: self.x.display.display,
-            data: unsafe { mem::zeroed() },
-        };
+        if let Some(x) = self.x.upgrade() {
+            let mut xev = ffi::XClientMessageEvent {
+                type_: ffi::ClientMessage,
+                window: x.window,
+                format: 32,
+                message_type: 0,
+                serial: 0,
+                send_event: 0,
+                display: x.display.display,
+                data: unsafe { mem::zeroed() },
+            };
 
-        unsafe {
-            (self.x.display.xlib.XSendEvent)(self.x.display.display, self.x.window, 0, 0, mem::transmute(&mut xev));
-            (self.x.display.xlib.XFlush)(self.x.display.display);
+            unsafe {
+                (x.display.xlib.XSendEvent)(x.display.display, x.window, 0, 0, mem::transmute(&mut xev));
+                (x.display.xlib.XFlush)(x.display.display);
+            }
         }
     }
 }
@@ -664,7 +667,7 @@ impl Window {
 
     pub fn create_window_proxy(&self) -> WindowProxy {
         WindowProxy {
-            x: self.x.clone()
+            x: self.x.downgrade()
         }
     }
 
