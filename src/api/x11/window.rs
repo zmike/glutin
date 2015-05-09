@@ -6,7 +6,6 @@ use std::{mem, ptr};
 use std::cell::Cell;
 use std::sync::atomic::AtomicBool;
 use std::collections::VecDeque;
-use super::ffi;
 use std::sync::{Arc, Mutex, Once, ONCE_INIT, Weak};
 
 use Api;
@@ -429,12 +428,17 @@ impl Window {
             }
         };
 
+        // getting the parent window
+        let parent = if builder.parent.is_null() {
+                         unsafe { (display.xlib.XDefaultRootWindow)(display.display) }
+        } else {
+            builder.parent as ffi::Window
+        };
         // getting the root window
-        let root = unsafe { (display.xlib.XDefaultRootWindow)(display.display) };
 
         // creating the color map
         let cmap = unsafe {
-            let cmap = (display.xlib.XCreateColormap)(display.display, root,
+            let cmap = (display.xlib.XCreateColormap)(display.display, parent,
                 visual_infos.visual as *mut _, ffi::AllocNone);
             // TODO: error checking?
             cmap
@@ -456,7 +460,7 @@ impl Window {
             swa
         };
 
-        let mut window_attributes = ffi::CWBorderPixel | ffi::CWColormap | ffi::CWEventMask;
+        let mut window_attributes = ffi::CWBorderPixel | ffi::CWEventMask | ffi::CWColormap;
 
         if builder.transparent {
             window_attributes |= ffi::CWBackPixel;
@@ -473,7 +477,7 @@ impl Window {
 
         // finally creating the window
         let window = unsafe {
-            let win = (display.xlib.XCreateWindow)(display.display, root, 0, 0, dimensions.0 as libc::c_uint,
+            let win = (display.xlib.XCreateWindow)(display.display, parent, 0, 0, dimensions.0 as libc::c_uint,
                 dimensions.1 as libc::c_uint, 0, visual_infos.depth, ffi::InputOutput as libc::c_uint,
                 visual_infos.visual as *mut _, window_attributes,
                 &mut set_win_attr);
