@@ -129,6 +129,12 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    /// Sets the parent window
+    pub fn with_parent(mut self, parent: WindowID) -> WindowBuilder<'a> {
+        self.attribs.parent = parent;
+        self
+    }
+
     /// Builds the window.
     ///
     /// Error should be very rare and only occur in case of permission denied, incompatible system,
@@ -528,3 +534,7 @@ impl MonitorID {
         id.get_dimensions()
     }
 }
+
+
+/// Identifier for a display system window.
+pub type WindowID = *mut libc::c_void;
