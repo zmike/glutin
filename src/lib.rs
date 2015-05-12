@@ -57,7 +57,7 @@ pub use events::*;
 #[cfg(feature = "headless")]
 pub use headless::{HeadlessRendererBuilder, HeadlessContext};
 #[cfg(feature = "window")]
-pub use window::{WindowBuilder, Window, WindowProxy, PollEventsIterator, WaitEventsIterator};
+pub use window::{WindowBuilder, Window, WindowID, WindowProxy, PollEventsIterator, WaitEventsIterator};
 #[cfg(feature = "window")]
 pub use window::{AvailableMonitorsIter, MonitorID, get_available_monitors, get_primary_monitor};
 #[cfg(feature = "window")]
@@ -260,6 +260,7 @@ pub struct BuilderAttribs<'a> {
     alpha_bits: Option<u8>,
     stereoscopy: bool,
     srgb: Option<bool>,
+    parent: *mut libc::c_void,
 }
 
 impl BuilderAttribs<'static> {
@@ -282,6 +283,7 @@ impl BuilderAttribs<'static> {
             alpha_bits: None,
             stereoscopy: false,
             srgb: None,
+            parent: std::ptr::null_mut(),
         }
     }
 }
@@ -308,6 +310,7 @@ impl<'a> BuilderAttribs<'a> {
             alpha_bits: self.alpha_bits,
             stereoscopy: self.stereoscopy,
             srgb: self.srgb,
+            parent: self.parent,
         };
 
         (new_attribs, sharing)
