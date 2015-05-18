@@ -434,7 +434,7 @@ impl Window {
             swa
         };
 
-        let mut window_attributes = ffi::CWBorderPixel | ffi:: CWEventMask;
+        let mut window_attributes = ffi::CWBorderPixel | ffi::CWEventMask;
         if builder.monitor.is_some() {
             window_attributes |= ffi::CWOverrideRedirect;
             unsafe {
