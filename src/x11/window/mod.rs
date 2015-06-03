@@ -55,6 +55,7 @@ struct XWindow {
     xf86_desk_mode: *mut ffi::XF86VidModeModeInfo,
     ic: ffi::XIC,
     im: ffi::XIM,
+    colormap: ffi::Colormap,
 }
 
 unsafe impl Send for XWindow {}
@@ -78,6 +79,7 @@ impl Drop for XWindow {
             ffi::XDestroyIC(self.ic);
             ffi::XCloseIM(self.im);
             ffi::XDestroyWindow(self.display, self.window);
+            ffi::XFreeColormap(self.display, self.colormap);
             ffi::XCloseDisplay(self.display);
         }
     }
@@ -420,11 +422,21 @@ impl Window {
         } else {
             builder.parent as ffi::Window
         };
+        // getting the root window
+        let root = unsafe { ffi::XDefaultRootWindow(display) };
+
+        // creating the color map
+        let cmap = unsafe {
+            let cmap = ffi::XCreateColormap(display, parent,
+                visual_infos.visual as *mut _, ffi::AllocNone);
+            // TODO: error checking?
+            cmap
+        };
 
         // creating
         let mut set_win_attr = {
             let mut swa: ffi::XSetWindowAttributes = unsafe { mem::zeroed() };
-            swa.colormap = 0;
+            swa.colormap = cmap;
             swa.event_mask = ffi::ExposureMask | ffi::StructureNotifyMask |
                 ffi::VisibilityChangeMask | ffi::KeyPressMask | ffi::PointerMotionMask |
                 ffi::KeyReleaseMask | ffi::ButtonPressMask |
@@ -434,7 +446,7 @@ impl Window {
             swa
         };
 
-        let mut window_attributes = ffi::CWBorderPixel | ffi::CWEventMask;
+        let mut window_attributes = ffi::CWBorderPixel | ffi::CWEventMask | ffi::CWColormap;
         if builder.monitor.is_some() {
             window_attributes |= ffi::CWOverrideRedirect;
             unsafe {
@@ -638,6 +650,7 @@ impl Window {
                 screen_id: screen_id,
                 is_fullscreen: builder.monitor.is_some(),
                 xf86_desk_mode: xf86_desk_mode,
+                colormap: cmap,
             }),
             is_closed: AtomicBool::new(false),
             wm_delete_window: wm_delete_window,
