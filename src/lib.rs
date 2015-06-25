@@ -23,7 +23,7 @@
 //!
 //! By default only `window` is enabled.
 
-#![feature(alloc)]
+#![feature(arc_weak)]
 
 #[macro_use]
 extern crate lazy_static;
