@@ -13,6 +13,7 @@ build = "build.rs"
 [features]
 default = ["window"]
 window = []
+headless = []
 
 [dependencies]
 gl_common = "0.0.4"
